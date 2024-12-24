@@ -34,7 +34,7 @@ print(f"{Fore.YELLOW}Idx  {"Name":<{name_width}} {"Size":>7}   Compression   Dec
 for i, test_file in enumerate(test_files):
     i += 1
     with open("tests/" + test_file, "r") as f:
-        original_block = f.read().split()[1]
+        original_block = f.read().split()[1]  # Ensure correct file format for reading
     original_size = get_base64_size(original_block)
     assert original_size is not None
     assert original_size <= 2 ** 21
@@ -43,6 +43,7 @@ for i, test_file in enumerate(test_files):
           f"{Fore.CYAN}{original_size:>7}{Style.RESET_ALL}",
           end="   ")
 
+    # Compression step
     try:
         result = subprocess.run("./solution", input="compress\n" + original_block, text=True, capture_output=True,
                                 timeout=2.0)
@@ -62,6 +63,10 @@ for i, test_file in enumerate(test_files):
         continue
     print(f"{Fore.GREEN}OK {Fore.CYAN}{compressed_size:>7}{Style.RESET_ALL}", end="    ")
 
+    # Debugging compressed block before decompression
+    print(f"Compressed Block (Base64): {compressed_block[:60]}...")  # Show a truncated version
+
+    # Decompression step
     try:
         result = subprocess.run("./solution", input="decompress\n" + compressed_block, text=True, capture_output=True,
                                 timeout=2.0)
@@ -70,8 +75,13 @@ for i, test_file in enumerate(test_files):
         continue
     if result.returncode != 0:
         print(f"{Fore.RED}RE exitcode={result.returncode}{Style.RESET_ALL}")
+        print(f"stderr: {result.stderr}")  # Print error output for debugging
         continue
     decompressed_block = result.stdout.strip()
+
+    # Debugging decompressed data
+    print(f"Decompressed Block (Base64): {decompressed_block[:60]}...")  # Show a truncated version
+
     if decompressed_block != original_block:
         print(f"{Fore.RED}WA wrong decompressed block{Style.RESET_ALL}")
         continue

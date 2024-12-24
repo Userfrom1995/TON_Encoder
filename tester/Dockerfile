@@ -9,7 +9,9 @@ COPY run_tests.py ./
 COPY tests ./tests
 
 COPY solution.cpp .
+COPY input.txt .
+COPY output.txt .
 RUN g++ -O2 -std=c++17 -Iinclude -Iinclude/crypto -Iinclude/tdutils -Iinclude/ton -Iinclude/common solution.cpp -L. -lton_crypto_lib -o solution
 
 ENV LD_LIBRARY_PATH=.
-CMD ["python3", "run_tests.py"]
+# CMD [./solution]

@@ -16,7 +16,7 @@ def get_base64_size(s: str) -> Optional[int]:
 
 init(autoreset=True)
 
-test_files = os.listdir("test/")
+test_files = os.listdir("tests/")
 test_files.sort()
 n_tests = len(test_files)
 if n_tests == 0:
@@ -33,7 +33,7 @@ print(f"{Fore.YELLOW}Idx  {"Name":<{name_width}} {"Size":>7}   Compression   Dec
 
 for i, test_file in enumerate(test_files):
     i += 1
-    with open("test/" + test_file, "r") as f:
+    with open("tests/" + test_file, "r") as f:
         original_block = f.read().split()[1]
     original_size = get_base64_size(original_block)
     assert original_size is not None

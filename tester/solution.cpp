@@ -1,82 +1,115 @@
 #include <iostream>
-#include <fstream>
-#include <unordered_map>
+#include <vector>
+#include <cstring>
 #include "td/utils/lz4.h"
 #include "td/utils/base64.h"
-#include "vm/boc.h"
 
-std::unordered_map<std::string, char> pattern_map;
+// Define the Cell structure
+struct Cell {
+    std::vector<uint8_t> data;
+    std::vector<uint16_t> refs;
+};
 
-std::string find_and_replace_patterns(const std::string& data) {
-    std::string modified_data = data;
-    size_t pattern_id = 0;
+// Serialize a single cell
+std::vector<uint8_t> serialize_cell(const Cell& cell) {
+    std::vector<uint8_t> serialized;
 
-    for (size_t i = 0; i < modified_data.size() - 1; ++i) {
-        std::string pattern = modified_data.substr(i, 2);
-        if (pattern_map.find(pattern) == pattern_map.end()) {
-            pattern_map[pattern] = 'A' + (pattern_id % 26); 
-            pattern_id++;
-        }
-        modified_data.replace(i, 2, 1, pattern_map[pattern]);
-    }
-    return modified_data;
-}
+    serialized.push_back(static_cast<uint8_t>(cell.data.size()));
+    serialized.insert(serialized.end(), cell.data.begin(), cell.data.end());
 
-std::string reverse_pattern_replacement(const std::string& compressed_data) {
-    std::string decompressed_data = compressed_data;
-    for (const auto& entry : pattern_map) {
-        decompressed_data.replace(decompressed_data.find(entry.second), 1, entry.first);
-    }
-    return decompressed_data;
-}
-
-td::BufferSlice preprocess(td::Slice data) {
-    auto root = vm::std_boc_deserialize(data).move_as_ok();
-    return vm::std_boc_serialize(root, 0).move_as_ok();
-}
-
-td::BufferSlice compress(td::Slice data) {
-    if (data.empty()) {
-        return td::BufferSlice();
+    serialized.push_back(static_cast<uint8_t>(cell.refs.size()));
+    for (uint16_t ref : cell.refs) {
+        serialized.push_back(ref & 0xFF);
+        serialized.push_back((ref >> 8) & 0xFF);
     }
 
-    td::BufferSlice preprocessed = preprocess(data);
-    std::string preprocessed_str(reinterpret_cast<const char*>(preprocessed.data()), preprocessed.size());
-
-    std::string compressed_str = find_and_replace_patterns(preprocessed_str);
-
-    return td::lz4_compress(td::BufferSlice(compressed_str.c_str(), compressed_str.size()));
+    return serialized;
 }
 
-td::BufferSlice decompress(td::Slice data) {
-    if (data.empty()) {
-        return td::BufferSlice();
+// Serialize a full block (Bag of Cells)
+std::vector<uint8_t> custom_serialize(const std::vector<Cell>& cells) {
+    std::vector<uint8_t> serialized;
+
+    serialized.push_back(static_cast<uint8_t>(cells.size()));
+    for (const Cell& cell : cells) {
+        auto cell_data = serialize_cell(cell);
+        serialized.insert(serialized.end(), cell_data.begin(), cell_data.end());
     }
 
-    const size_t max_size = 2 << 20;
-
-    td::BufferSlice decompressed = td::lz4_decompress(data, max_size).move_as_ok();
-    std::string decompressed_str(reinterpret_cast<const char*>(decompressed.data()), decompressed.size());
-
-    std::string restored_str = reverse_pattern_replacement(decompressed_str);
-
-    td::BufferSlice restored_data(restored_str.c_str(), restored_str.size());
-    auto root = vm::std_boc_deserialize(restored_data).move_as_ok();
-    return vm::std_boc_serialize(root, 63).move_as_ok(); // Ensure that the '63' argument is correct
+    return serialized;
 }
 
+// Deserialize a single cell
+Cell deserialize_cell(const uint8_t* data, size_t& offset) {
+    Cell cell;
+
+    uint8_t data_size = data[offset++];
+    cell.data.assign(data + offset, data + offset + data_size);
+    offset += data_size;
+
+    uint8_t num_refs = data[offset++];
+    for (size_t i = 0; i < num_refs; ++i) {
+        uint16_t ref = data[offset] | (data[offset + 1] << 8);
+        cell.refs.push_back(ref);
+        offset += 2;
+    }
+
+    return cell;
+}
+
+// Deserialize a full block (Bag of Cells)
+std::vector<Cell> custom_deserialize(const std::vector<uint8_t>& serialized) {
+    size_t offset = 0;
+    std::vector<Cell> cells;
+
+    uint8_t num_cells = serialized[offset++];
+    for (size_t i = 0; i < num_cells; ++i) {
+        cells.push_back(deserialize_cell(serialized.data(), offset));
+    }
+
+    return cells;
+}
+
+// Preprocess: Custom serialization
+std::vector<uint8_t> preprocess(const std::vector<uint8_t>& input) {
+    auto cells = custom_deserialize(input);
+    return custom_serialize(cells);
+}
+
+// Compress: Apply LZ4 on preprocessed data
+std::vector<uint8_t> compress(const std::vector<uint8_t>& input) {
+    if (input.empty()) {
+        return {};
+    }
+    auto preprocessed = preprocess(input);
+    auto compressed = td::lz4_compress(td::Slice(reinterpret_cast<const char*>(preprocessed.data()), preprocessed.size()));
+    return std::vector<uint8_t>(compressed.as_slice().begin(), compressed.as_slice().end());
+}
+
+// Decompress: Reverse LZ4 and custom serialization
+std::vector<uint8_t> decompress(const std::vector<uint8_t>& input) {
+    if (input.empty()) {
+        return {};
+    }
+    constexpr size_t max_size = 2 << 20; // 2MB safety limit
+    
+    // Just decompress the LZ4 data and return it directly
+    auto decompressed = td::lz4_decompress(
+        td::Slice(reinterpret_cast<const char*>(input.data()), input.size()), 
+        max_size
+    ).move_as_ok();
+    
+    // Convert to vector<uint8_t> and return
+    return std::vector<uint8_t>(
+        decompressed.as_slice().begin(), 
+        decompressed.as_slice().end()
+    );
+}
+
+// Main logic
 int main() {
-    // Open input and output files
-    std::ifstream input_file("input.txt");
-    std::ofstream output_file("output.txt");
-
-    if (!input_file.is_open() || !output_file.is_open()) {
-        std::cerr << "Error opening files!" << std::endl;
-        return 1;
-    }
-
     std::string mode;
-    std::getline(input_file, mode);  // Read the first line to determine the mode
+    std::cin >> mode;
 
     if (mode != "compress" && mode != "decompress") {
         std::cerr << "Invalid mode" << std::endl;
@@ -84,28 +117,22 @@ int main() {
     }
 
     std::string base64_data;
-    std::getline(input_file, base64_data);  // Read the second line for the base64 encoded data
-
+    std::cin >> base64_data;
     if (base64_data.empty()) {
         std::cerr << "Empty input" << std::endl;
         return 1;
     }
 
-    td::BufferSlice data(td::base64_decode(base64_data).move_as_ok());
+    auto decoded_data = td::base64_decode(base64_data).move_as_ok();
+    std::string data(decoded_data.data(), decoded_data.size());
+    std::vector<uint8_t> result;
 
     if (mode == "compress") {
-        data = compress(data);
+        result = compress(std::vector<uint8_t>(data.data(), data.data() + data.size()));
     } else {
-        data = decompress(data);
+        result = decompress(std::vector<uint8_t>(data.data(), data.data() + data.size()));
     }
 
-    // Write the result to the output file
-    output_file << td::base64_encode(data) << std::endl;
-
-    input_file.close();
-    output_file.close();
-
-    std::cout << "Process completed. Output saved to output.txt" << std::endl;
-
+    std::cout << td::base64_encode(td::Slice(reinterpret_cast<const char*>(result.data()), result.size())) << std::endl;
     return 0;
 }

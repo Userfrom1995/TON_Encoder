@@ -3,48 +3,59 @@
 #include "td/utils/base64.h"
 #include "vm/boc.h"
 
-// Preprocessing: Flatten cells to a minimal representation
+// Preprocessing: Minimize data size
 td::BufferSlice preprocess(td::Slice data) {
     auto root = vm::std_boc_deserialize(data).move_as_ok();
-    return vm::std_boc_serialize(root, 1).move_as_ok(); // Use mode=1 for minimal metadata
+    // Use minimal serialization for better compression
+    return vm::std_boc_serialize(root, 0).move_as_ok();
 }
 
-// Compression: Apply preprocessing and LZ4 compression
+// Optimized compression
 td::BufferSlice compress(td::Slice data) {
+    if (data.empty()) {
+        return td::BufferSlice();
+    }
+    // Preprocess with minimal representation
     td::BufferSlice preprocessed = preprocess(data);
-    return td::lz4_compress(preprocessed); // Compress preprocessed data
+    // Compress with standard LZ4
+    return td::lz4_compress(preprocessed);
 }
 
-// Decompression: Reverse LZ4 and preprocessing
+// Optimized decompression
 td::BufferSlice decompress(td::Slice data) {
-    td::BufferSlice decompressed = td::lz4_decompress(data, 2 << 20).move_as_ok();
+    if (data.empty()) {
+        return td::BufferSlice();
+    }
+    const size_t max_size = 2 << 20; // 2MB safety limit
+    td::BufferSlice decompressed = td::lz4_decompress(data, max_size).move_as_ok();
     auto root = vm::std_boc_deserialize(decompressed).move_as_ok();
-    return vm::std_boc_serialize(root, 31).move_as_ok(); // Restore original metadata
+    return vm::std_boc_serialize(root, 31).move_as_ok();
 }
 
+// ...rest of main() remains unchanged...
 int main() {
-    std::string mode;
-    std::cin >> mode;
-    if (mode != "compress" && mode != "decompress") {
-        std::cerr << "Invalid mode" << std::endl;
-        return 1;
-    }
+  std::string mode;
+  std::cin >> mode;
+  if (mode != "compress" && mode != "decompress") {
+      std::cerr << "Invalid mode" << std::endl;
+      return 1;
+  }
 
-    std::string base64_data;
-    std::cin >> base64_data;
-    if (base64_data.empty()) {
-        std::cerr << "Empty input" << std::endl;
-        return 1;
-    }
+  std::string base64_data;
+  std::cin >> base64_data;
+  if (base64_data.empty()) {
+      std::cerr << "Empty input" << std::endl;
+      return 1;
+  }
 
-    td::BufferSlice data(td::base64_decode(base64_data).move_as_ok());
+  td::BufferSlice data(td::base64_decode(base64_data).move_as_ok());
 
-    if (mode == "compress") {
-        data = compress(data);
-    } else {
-        data = decompress(data);
-    }
+  if (mode == "compress") {
+      data = compress(data);
+  } else {
+      data = decompress(data);
+  }
 
-    std::cout << td::base64_encode(data) << std::endl;
-    return 0;
+  std::cout << td::base64_encode(data) << std::endl;
+  return 0;
 }

@@ -8,6 +8,8 @@ RUN unzip ton_crypto_lib-x86_64-linux.zip
 COPY run_tests.py ./
 COPY tests ./tests
 COPY test_results.txt .
+COPY input.txt .
+COPY output.txt .
 
 COPY solution.cpp .
 RUN g++ -O2 -std=c++17 -Iinclude -Iinclude/crypto -Iinclude/tdutils -Iinclude/ton -Iinclude/common solution.cpp -L. -lton_crypto_lib -o solution

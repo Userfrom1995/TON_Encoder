@@ -1,4 +1,4 @@
-#include <iostream>
+
 #include "td/utils/buffer.h" 
 #include "td/utils/lz4.h" // TON's LZ4 library
 #include "vm/boc.h" // For TON serialization/deserialization
@@ -6,12 +6,17 @@
 #include "vm/cellslice.h" 
 #include "td/utils/misc.h"
 #include "td/utils/Gzip.h"
+// #include<fstream>
 
 // Compress function using gzip
 td::BufferSlice compress(td::Slice data) {
     try {
-        double max_compression_ratio = 10.0; // Adjust as needed
+        td::Ref<vm::Cell> root = vm::std_boc_deserialize(data).move_as_ok();
+        td::BufferSlice serialized = vm::std_boc_serialize(root, 2).move_as_ok();
+        auto data= td::lz4_compress(serialized);
+        double max_compression_ratio = 100.0; // Adjust as needed
         auto compressed = td::gzencode(data, max_compression_ratio);
+      
         if (compressed.empty()) {
             throw std::runtime_error("Gzip compression returned empty data.");
         }
@@ -26,10 +31,14 @@ td::BufferSlice compress(td::Slice data) {
 td::BufferSlice decompress(td::Slice data) {
     try {
         auto decompressed = td::gzdecode(data);
+      
+        td::BufferSlice serialized = td::lz4_decompress(decompressed, 2 << 20).move_as_ok();
+       auto root = vm::std_boc_deserialize(serialized).move_as_ok();
+        auto data= vm::std_boc_serialize(root, 31).move_as_ok();
         if (decompressed.empty()) {
             throw std::runtime_error("Gzip decompression returned empty data.");
         }
-        return decompressed;
+        return data;
     } catch (const std::exception& e) {
         std::cerr << "Decompression failed: " << e.what() << std::endl;
         return {};
@@ -38,17 +47,17 @@ td::BufferSlice decompress(td::Slice data) {
 
 int main() {
     try {
-        // File paths
-        // const std::string input_file = "output.txt";
+        //File paths
+        // const std::string input_file = "output1.txt";
         // const std::string output_file = "output2.txt";
 
-        // // Read input file
+        // Read input file
         // std::ifstream infile(input_file);
         // if (!infile.is_open()) {
         //     throw std::runtime_error("Could not open input file!");
         // }
 
-        // Read mode from first line
+       // Read mode from first line
         std::string mode;
         // infile >> mode;
         // if (mode != "compress" && mode != "decompress") {
@@ -78,7 +87,7 @@ int main() {
             // std::cout << "Decompressed size: " << data.size() << " bytes" << std::endl;
         }
 
-        // Encode the result to Base64 and write to output file
+        //Encode the result to Base64 and write to output file
         // std::ofstream outfile(output_file);
         // if (!outfile.is_open()) {
         //     throw std::runtime_error("Could not open output file!");

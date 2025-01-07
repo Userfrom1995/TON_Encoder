@@ -1,133 +1,99 @@
-// /*
-//  * solution.cpp
-//  *
-//  * Example solution.
-//  * This is (almost) how blocks are actually compressed in TON.
-//  * Normally, blocks are stored using vm::std_boc_serialize with mode=31.
-//  * Compression algorithm takes a block, converts it to mode=2 (which has less extra information) and compresses it using lz4.
-//  */
-// #include <iostream>
-// #include "td/utils/lz4.h"
-// #include "td/utils/buffer.h" 
-// #include "td/utils/misc.h"  
-// #include "common/util.h"    
-// #include "vm/cellslice.h" 
-
-// // #include "td/utils/base64.h"
-// #include "vm/boc.h"
-
-// td::BufferSlice compress(td::Slice data) {
-
-//   td::Ref<vm::Cell> root = vm::std_boc_deserialize(data).move_as_ok();
-//   td::BufferSlice serialized = vm::std_boc_serialize(root, 2).move_as_ok();
-
-//   return td::lz4_compress(serialized);
-// }
-
-// td::BufferSlice decompress(td::Slice data) {
-//   td::BufferSlice serialized = td::lz4_decompress(data, 2 << 20).move_as_ok();
-
-//   auto root = vm::std_boc_deserialize(serialized).move_as_ok();
-//   return vm::std_boc_serialize(root, 31).move_as_ok();
-// }
-
-// int main() {
-//   std::string mode;
-//   std::cin >> mode;
-//   CHECK(mode == "compress" || mode == "decompress");
-
-//   std::string base64_data;
-//   std::cin >> base64_data;
-//   CHECK(!base64_data.empty());
-
-//   td::BufferSlice data(td::base64_decode(base64_data));
-
-
-//   if (mode == "compress") {
-//     data = compress(data);
-//   } else {
-//     data = decompress(data);
-//   }
-
-//   std::cout << td::str_base64_encode(data) << std::endl;
-// }
 #include <iostream>
-#include <vector>
-#include "td/utils/lz4.h"
 #include "td/utils/buffer.h" 
-#include "td/utils/misc.h"  
-#include "common/util.h"    
+#include "td/utils/lz4.h" // TON's LZ4 library
+#include "vm/boc.h" // For TON serialization/deserialization
+#include "common/util.h" 
 #include "vm/cellslice.h" 
+#include "td/utils/misc.h"
+#include "td/utils/Gzip.h"
 
-// #include "td/utils/base64.h"
-#include "vm/boc.h"
-
-// Substitution Cipher Mapping (example)
-std::vector<uint8_t> substitution_map(256);
-std::vector<uint8_t> reverse_map(256);
-
-// Initialize substitution and reverse maps
-void initialize_cipher() {
-  for (int i = 0; i < 256; i++) {
-    substitution_map[i] = (i + 47) % 256;  // Example: Rotate by 47
-    reverse_map[substitution_map[i]] = i; // Reverse mapping
-  }
-}
-
-// Apply substitution cipher
-void apply_cipher(td::MutableSlice data) {
-  for (size_t i = 0; i < data.size(); i++) {
-    data[i] = substitution_map[data[i]];
-  }
-}
-
-// Reverse substitution cipher
-void reverse_cipher(td::MutableSlice data) {
-  for (size_t i = 0; i < data.size(); i++) {
-    data[i] = reverse_map[data[i]];
-  }
-}
-
-// Compression with substitution cipher
+// Compress function using gzip
 td::BufferSlice compress(td::Slice data) {
-  td::Ref<vm::Cell> root = vm::std_boc_deserialize(data).move_as_ok();
-  td::BufferSlice serialized = vm::std_boc_serialize(root, 2).move_as_ok();
-
-  // Apply substitution cipher
-  apply_cipher(serialized.as_slice());
-
-  return td::lz4_compress(serialized);
+    try {
+        double max_compression_ratio = 10.0; // Adjust as needed
+        auto compressed = td::gzencode(data, max_compression_ratio);
+        if (compressed.empty()) {
+            throw std::runtime_error("Gzip compression returned empty data.");
+        }
+        return compressed;
+    } catch (const std::exception& e) {
+        std::cerr << "Compression failed: " << e.what() << std::endl;
+        return {};
+    }
 }
 
-// Decompression with substitution cipher
+// Decompress function using gzip
 td::BufferSlice decompress(td::Slice data) {
-  td::BufferSlice serialized = td::lz4_decompress(data, 2 << 20).move_as_ok();
-
-  // Reverse substitution cipher
-  reverse_cipher(serialized.as_slice());
-
-  auto root = vm::std_boc_deserialize(serialized).move_as_ok();
-  return vm::std_boc_serialize(root, 31).move_as_ok();
+    try {
+        auto decompressed = td::gzdecode(data);
+        if (decompressed.empty()) {
+            throw std::runtime_error("Gzip decompression returned empty data.");
+        }
+        return decompressed;
+    } catch (const std::exception& e) {
+        std::cerr << "Decompression failed: " << e.what() << std::endl;
+        return {};
+    }
 }
 
 int main() {
-  initialize_cipher();
+    try {
+        // File paths
+        // const std::string input_file = "output.txt";
+        // const std::string output_file = "output2.txt";
 
-  std::string mode;
-  std::cin >> mode;
-  CHECK(mode == "compress" || mode == "decompress");
+        // // Read input file
+        // std::ifstream infile(input_file);
+        // if (!infile.is_open()) {
+        //     throw std::runtime_error("Could not open input file!");
+        // }
 
-  std::string base64_data;
-  std::cin >> base64_data;
-  CHECK(!base64_data.empty());
+        // Read mode from first line
+        std::string mode;
+        // infile >> mode;
+        // if (mode != "compress" && mode != "decompress") {
+        //     throw std::runtime_error("Invalid mode. Use 'compress' or 'decompress'.");
+        // }
+        std::cin>>mode;
 
-  td::BufferSlice data(td::base64_decode(base64_data));
+        // Read base64 data from second line
+        std::string base64_data;
+        std::cin>>base64_data;
+        // infile >> base64_data;
+        // if (base64_data.empty()) {
+        //     throw std::runtime_error("Empty data in input file!");
+        // }
+        // infile.close();
 
-  if (mode == "compress") {
-    data = compress(data);
-  } else {
-    data = decompress(data);
-  }
+        // // Decode Base64 input
+        td::BufferSlice data = td::base64_decode(base64_data);
+        // std::cout << "Input size: " << data.size() << " bytes" << std::endl;
 
-  std::cout << td::str_base64_encode(data) << std::endl;
+        // Process data based on the mode
+        if (mode == "compress") {
+            data = compress(data);
+            // std::cout << "Compressed size: " << data.size() << " bytes" << std::endl;
+        } else {
+            data = decompress(data);
+            // std::cout << "Decompressed size: " << data.size() << " bytes" << std::endl;
+        }
+
+        // Encode the result to Base64 and write to output file
+        // std::ofstream outfile(output_file);
+        // if (!outfile.is_open()) {
+        //     throw std::runtime_error("Could not open output file!");
+        // }
+
+        std::string output = td::str_base64_encode(data);
+        // outfile << output << std::endl;
+        // outfile.close();
+        std::cout << output << std::endl;
+
+        // std::cout << "Operation completed. Output written to " << output_file << std::endl;
+        // return 0;
+
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
 }

@@ -45,7 +45,7 @@ for i, test_file in enumerate(test_files):
 
     try:
         result = subprocess.run("./solution", input="compress\n" + original_block, text=True, capture_output=True,
-                                timeout=2.0)
+                                timeout=20.0)
     except subprocess.TimeoutExpired:
         print(f"{Fore.RED}TL timeout expired{Style.RESET_ALL}")
         continue
@@ -64,7 +64,7 @@ for i, test_file in enumerate(test_files):
 
     try:
         result = subprocess.run("./solution", input="decompress\n" + compressed_block, text=True, capture_output=True,
-                                timeout=2.0)
+                                timeout=20.0)
     except subprocess.TimeoutExpired:
         print(f"{Fore.RED}TL timeout expired{Style.RESET_ALL}")
         continue

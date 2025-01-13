@@ -12,14 +12,23 @@
 // Compress function using gzip
 // Compress function using gzip
 // Compress function using gzip
+std::string binary_to_ascii(const td::BufferSlice& binary_data) {
+    return std::string(reinterpret_cast<const char*>(binary_data.data()), binary_data.size());
+}
+
+// Convert an ASCII string to binary (byte array)
+std::vector<unsigned char> ascii_to_binary(const std::string& ascii_str) {
+    return std::vector<unsigned char>(ascii_str.begin(), ascii_str.end());
+}
+
 td::BufferSlice compress(td::Slice data) {
     try {
         // Deserialize the data
         td::Ref<vm::Cell> root = vm::std_boc_deserialize(data).move_as_ok();
-        td::BufferSlice serialized = vm::std_boc_serialize(root, 0).move_as_ok();
+        td::BufferSlice serialized = vm::std_boc_serialize(root, 2).move_as_ok();
         
         // Define the chunk size for splitting
-        const std::size_t chunk_size = 64 * 1024; // 64 KB for example
+        const std::size_t chunk_size =  1024*1024; // 64 KB for example
         
         // Initialize BufferBuilder directly
         td::BufferBuilder final_compressed_builder;
@@ -40,7 +49,7 @@ td::BufferSlice compress(td::Slice data) {
         td::BufferSlice final_compressed = final_compressed_builder.extract();
         
         // Optionally apply gzip compression for further reduction
-        double max_compression_ratio = 100.0; // Adjust as needed
+        double max_compression_ratio = 1.0; // Adjust as needed
         auto final_compressed_gzipped = td::gzencode(final_compressed, max_compression_ratio);
 
         if (final_compressed_gzipped.empty()) {
@@ -58,7 +67,7 @@ td::BufferSlice decompress(td::Slice data) {
     try {
         auto decompressed = td::gzdecode(data);
       
-        td::BufferSlice serialized = td::lz4_decompress(decompressed, 2 << 20).move_as_ok();
+        td::BufferSlice serialized = td::lz4_decompress(decompressed, 1 << 20).move_as_ok();
        auto root = vm::std_boc_deserialize(serialized).move_as_ok();
         auto data= vm::std_boc_serialize(root, 31).move_as_ok();
         if (decompressed.empty()) {
@@ -73,61 +82,53 @@ td::BufferSlice decompress(td::Slice data) {
 
 int main() {
     try {
-        //File paths
-        const std::string input_file = "input.txt";
-        const std::string output_file = "output.txt";
-
-        //Read input file
-        std::ifstream infile(input_file);
-        if (!infile.is_open()) {
-            throw std::runtime_error("Could not open input file!");
-        }
-
-       // Read mode from first line
         std::string mode;
-        infile >> mode;
+        std::cin >> mode;
+
         if (mode != "compress" && mode != "decompress") {
-            throw std::runtime_error("Invalid mode. Use 'compress' or 'decompress'.");
+            std::cerr << "Invalid mode. Use 'compress' or 'decompress'." << std::endl;
+            return 1;
         }
-        // std::cin>>mode;
 
-        // Read base64 data from second line
         std::string base64_data;
-        // std::cin>>base64_data;
-        infile >> base64_data;
+        std::cin >> base64_data;
+
         if (base64_data.empty()) {
-            throw std::runtime_error("Empty data in input file!");
+            std::cerr << "Input data is empty." << std::endl;
+            return 1;
         }
-        infile.close();
 
-        // // Decode Base64 input
-        td::BufferSlice data = td::base64_decode(base64_data);
-        std::cout << "Input size: " << data.size() << " bytes" << std::endl;
+        // Step 1: Decode Base64 to binary data
+        td::BufferSlice binary_data(td::base64_decode(base64_data));
 
-        // Process data based on the mode
+        // Step 2: Convert the binary data to an ASCII string
+        std::string ascii_str = binary_to_ascii(binary_data);
+
+        // Step 3: If in "compress" mode, process the data
         if (mode == "compress") {
-            data = compress(data);
-            std::cout << "Compressed size: " << data.size() << " bytes" << std::endl;
-        } else {
-            data = decompress(data);
-            // std::cout << "Decompressed size: " << data.size() << " bytes" << std::endl;
+            // Convert ASCII string to binary for processing
+            std::vector<unsigned char> binary_input = ascii_to_binary(ascii_str);
+
+            // Compress the binary data (after processing)
+            td::BufferSlice compressed_data = compress(td::Slice(binary_input.data(), binary_input.size()));
+
+            // Step 4: Encode the compressed result back to Base64
+            std::cout << td::str_base64_encode(compressed_data) << std::endl;
+
+        } else if (mode == "decompress") {
+            // Decompress the data
+            td::BufferSlice decompressed_data = decompress(binary_data);
+
+            // Step 5: Convert decompressed binary back to ASCII
+            std::string decompressed_ascii = binary_to_ascii(decompressed_data);
+
+            // Step 6: Encode the decompressed result back to Base64
+            std::cout << td::str_base64_encode(td::BufferSlice(decompressed_ascii)) << std::endl;
         }
 
-        //Encode the result to Base64 and write to output file
-        std::ofstream outfile(output_file);
-        if (!outfile.is_open()) {
-            throw std::runtime_error("Could not open output file!");
-        }
-
-        std::string output = td::str_base64_encode(data);
-        outfile << output << std::endl;
-        outfile.close();
-        // std::cout << output << std::endl;
-
-        std::cout << "Operation completed. Output written to " << output_file << std::endl;
         return 0;
 
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
